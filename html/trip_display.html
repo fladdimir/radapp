@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <link rel="stylesheet" href="leaflet.css" />
+    <link rel="stylesheet" href="uPlot.css" />
+    <script src="leaflet.js"></script>
+    <script src="leaflet.rotatedMarker.js"></script>
+    <script src="uPlot.js"></script>
+</head>
+
+<body>
+
+    <h5>trip display</h5>
+    <input id="tripIdInput" placeholder="trip-id" />
+    <button id="showTrip">show</button>
+    <br>
+
+    <div id='map' style='width: 100%; height: 700px;'></div>
+
+    <div id='chart' style='justify-content: center; align-items: center; display: flex;'></div>
+
+    <script>
+        const ACCURACY_THRESHOLD = 10;
+
+        var map = L.map('map', { attributionControl: false }).setView([53.554043, 9.928579], 10);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 20,
+        }).addTo(map);
+
+        let data;
+        const BASE_URL = "https://" + window.location.hostname + ":" + window.location.port + "/api/location-tracking/trip";
+        const tripIdInput = document.getElementById("tripIdInput");
+        const showTripButton = document.getElementById("showTrip");
+        const showTrip = async () => {
+            const tripId = tripIdInput.value;
+            if (!tripId) alert("trip-id not set");
+            const response = await fetch(BASE_URL + "/" + tripId, { method: "GET" });
+            if (!response.ok) alert("request failure: " + JSON.stringify(response.status));
+            const result = await response.json();
+            data = result;
+
+            console.log(JSON.stringify(data, undefined, 2));
+            // filter rather accurate values
+            data.locations = data.locations.filter(p => p.accuracy).filter(p => p.accuracy < ACCURACY_THRESHOLD);
+            console.log(JSON.stringify(data, undefined, 2));
+            // calculate tsp number for internal usage
+            data.locations.forEach(p => { p.tsp = new Date(p.measurementTime).getTime() / 1000 });
+
+            renderMap();
+            renderSpeedDiagram();
+        };
+        showTripButton.addEventListener('click', showTrip);
+
+        const renderMap = () => {
+            if (!data?.locations?.length) return;
+            data.locations.forEach(renderPosition);
+            map.flyToBounds(data.locations.map(p => ({ lat: p.lat, lng: p.lng })));
+        };
+
+        // https://www.reshot.com/free-svg-icons/arrow/
+        const strokeWitdthPlaceholder = "%strokeWitdth%";
+        const strokePlaceholder = "%stroke%";
+        const svgTemplate = '<svg data-name="arrow-up" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="m26.71 10.29-10-10a1 1 0 0 0-1.41 0l-10 10 1.41 1.41L15 3.41V32h2V3.41l8.29 8.29z" '
+            + 'stroke-width="' + strokeWitdthPlaceholder + '" stroke="' + strokePlaceholder + '"'
+            + ' /></svg>';
+
+        const circles = {};
+        const renderPosition = (p, i) => {
+            const coords = [p.lat, p.lng];
+            const circle = L.circle(coords, {
+                color: 'blue',
+                weight: 1,
+                fillColor: '#f03',
+                fillOpacity: 0.01,
+                radius: p.accuracy
+            }).addTo(map).bindPopup("index: " + i);
+            circles[p.tsp] = circle;
+
+            if (p.heading) {
+                const strokeWidth = p.speed ? p.speed / 3 : 0;
+                const stroke = p.speed ? 'blue' : 'black';
+                const svg = svgTemplate.replace(strokeWitdthPlaceholder, strokeWidth).replace(strokePlaceholder, stroke);
+                var iconUrl = 'data:image/svg+xml;base64,' + btoa(svg);
+                const icon = L.icon({
+                    iconUrl: iconUrl,
+                    iconSize: [40, 40]
+                });
+                const arrow = L.marker(coords, { icon, rotationAngle: p.heading, rotationOrigin: 'center', opacity: 0.1 }).addTo(map);
+                if (p.speed) arrow.bindPopup("" + p.speed.toFixed(1) + " m/s");
+            }
+        };
+        let hoveredCircle = undefined;
+        const hoverCircle = tsp => {
+            const circle = circles[tsp];
+            if (circle === hoveredCircle) return; // nothing to do
+            if (hoveredCircle) { // reset old
+                hoveredCircle.setStyle({ color: 'blue', weight: 1 });
+                hoveredCircle = undefined;
+            }
+            if (circle) { // set new
+                hoveredCircle = circle;
+                hoveredCircle.setStyle({ color: 'red', weight: 5 });
+            }
+        };
+
+        // diagram:
+        function calcCrow(lat1, lon1, lat2, lon2) {
+            // https://stackoverflow.com/a/18883819 
+            var R = 6371; // m
+            var dLat = toRad(lat2 - lat1);
+            var dLon = toRad(lon2 - lon1);
+            var lat1 = toRad(lat1);
+            var lat2 = toRad(lat2);
+            var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            var d = R * c;
+            return d * 1000;
+        }
+        function toRad(Value) { // Converts numeric degrees to radians
+            return Value * Math.PI / 180;
+        }
+
+        const renderSpeedDiagram = () => {
+            if (!data?.locations) return;
+            const usefulData = data.locations.filter(p => p.speed);
+            if (!usefulData.length) return;
+            const timestampsS = usefulData.map(p => p.tsp);
+            const measuredSpeeds = usefulData.map(p => p.speed);
+            // calculate speed: estimate based on distance/time since last position
+            const calculatedSpeeds = [0];
+            let previous;
+            for (let i = 0; i < usefulData.length - 1; i++) {
+                let current = usefulData[i];
+                if (previous) {
+                    let timeS = timestampsS[i] - timestampsS[i - 1];
+                    let distanceM = calcCrow(current.lat, current.lng, previous.lat, previous.lng);
+                    let calculatedSpeed = distanceM / timeS;
+                    calculatedSpeeds.push(calculatedSpeed);
+                }
+                previous = current;
+            }
+            createDiagram(timestampsS, measuredSpeeds, calculatedSpeeds);
+        };
+        // time -> measured speed, calculated speed
+        const createDiagram = (timestamps = [], measuredSpeeds = [], calculatedSpeeds = []) => {
+            let uPlotData = [
+                timestamps, // [1546300800, 1546387200], // x-values (timestamps)
+                measuredSpeeds, // [35, 71], // y-values (series 1)
+                calculatedSpeeds,
+            ];
+            let opts = {
+                title: "Speed (m/s)",
+                width: 1000,
+                height: 400,
+                series: [
+                    {
+                        value: (u, tsp) => {
+                            if (!tsp) return tsp;
+                            return new Date(tsp * 1000).toLocaleTimeString();
+                        }
+                    },
+                    {
+                        label: "measured",
+                        stroke: "blue",
+                        width: 2,
+                        fill: "rgba(0, 0, 255, 0.1)",
+                        dash: [5, 5],
+                        value: (u, v) => v?.toFixed(1),
+                    }, {
+                        label: "calculated",
+                        stroke: "green",
+                        width: 1,
+                        fill: "rgba(0, 255, 0, 0.1)",
+                        dash: [5, 5],
+                        value: (u, v) => v?.toFixed(1),
+                    },
+                ],
+                hooks: {
+                    setCursor: [self => {
+                        const closestIdx = self.cursor.idx;
+                        if (!closestIdx) hoverCircle(undefined);
+                        const timestamp = self.data[0][closestIdx];
+                        hoverCircle(timestamp);
+                    }]
+                }
+            };
+
+            const chartParent = document.getElementById("chart");
+            let uplot = new uPlot(opts, uPlotData, chartParent);
+        }
+
+        // TODO: altitude diagram ?
+
+    </script>
+</body>
+
+</html>

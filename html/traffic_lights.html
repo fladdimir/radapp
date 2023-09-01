@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+</head>
+
+<body>
+
+    <button id="refresh" style="width: 400px; height: 200px;">refresh</button>
+    <ul id="list" style="font-size: xx-large;">
+
+    </ul>
+
+    <script>
+        const refreshElement = document.getElementById("refresh");
+        const listElement = document.getElementById("list");
+        let data = [];
+
+        const TOP_N = 8;
+        FETCH_URL = "https://tld.iot.hamburg.de/v1.1/Datastreams(50850)/Observations?$top=" + TOP_N + "&$orderby=phenomenonTime+desc&$select=phenomenonTime,result";
+        const refreshData = async () => {
+            const response = await fetch(FETCH_URL, { method: "GET" });
+            if (!response.ok) alert("request failure: " + JSON.stringify(response.statusText));
+            const responseData = await response.json();
+            if (!responseData.value.length) alert("empty response");
+            console.log(JSON.stringify(responseData.value, undefined, 2));
+            data = responseData.value.map(v => ({ tsp: new Date(v.phenomenonTime), result: v.result, }));
+            render();
+        };
+        refreshElement.addEventListener('click', refreshData);
+
+        const resultColorMap = { // "0=dark,1=red,2=amber,3=green,4=red-amber,5=amber-flashing,6=green-flashing,9=unknown"
+            1: "red",
+            2: "yellow",
+            3: "green",
+            4: "orange",
+        }
+
+        const render = () => { // {tsp: string, result: number}
+            const newEntries = data.map(d => { // to list entry
+                const entry = document.createElement('li');
+                entry.innerText = d.tsp.toLocaleTimeString();
+                entry.style.cssText = "background:" + resultColorMap[d.result] + ";width:200px;";
+                return entry;
+            });
+            listElement.replaceChildren(...newEntries);
+        };
+    </script>
+
+</body>
+
+</html>

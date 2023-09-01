@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <link rel="stylesheet" href="leaflet.css" />
+    <script src="leaflet.js"></script>
+</head>
+
+
+<body>
+
+    <h5>planned route display</h5>
+    <input id="routeNameInput" placeholder="route-name" value="route_3" />
+    <button id="displayButton">show</button>
+    <button id="deleteButton">delete</button>
+    <br>
+
+    <div id='map' style='width: 100%; height: 1000px;'></div>
+
+    <script>
+        const BASE_URL = window.origin + "/api/route-planning/route";
+        const routeNameInput = document.getElementById("routeNameInput");
+        const displayButton = document.getElementById("displayButton");
+        const deleteButton = document.getElementById("deleteButton");
+
+        const displayRoute = async () => {
+            const routeName = routeNameInput.value;
+            if (!routeName) alert("name not set");
+            const response = await fetch(BASE_URL + "/" + routeName, { method: "GET" });
+            if (!response.ok) alert("request failure: " + response.statusText);
+            const result = await response.json();
+            console.log(JSON.stringify(result));
+            render(result);
+        }
+        displayButton.addEventListener('click', displayRoute);
+
+        const deleteRoute = async () => {
+            const routeName = routeNameInput.value;
+            if (!routeName) {
+                alert("name not set");
+                return;
+            }
+            const response = await fetch(BASE_URL + "/" + routeName, { method: "DELETE" });
+            if (!response.ok) alert("request failure: " + response.statusText);
+            else alert("route deleted");
+        }
+        deleteButton.addEventListener('click', deleteRoute);
+
+        const map = L.map('map', { attributionControl: false }).setView([53.554043, 9.928579], 10);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 20,
+        }).addTo(map);
+
+        const render = async (data) => {
+            const latlngs = data.points.map(p => ({ lat: p.lat, lng: p.lon }));
+            new L.Polyline(latlngs, {
+                color: 'black',
+                weight: 3,
+                opacity: 0.8,
+                smoothFactor: 0
+            }).addTo(map);
+            data.points.forEach(p => {
+                const coords = [p.lat, p.lon];
+                if (p.trafficLightId) {
+                    const icon = L.icon({ iconUrl: "images/marker.png", iconSize: [25, 41], iconAnchor: [12, 41], });
+                    const circle = L.marker(coords, { icon })
+                        .addTo(map).bindPopup("tl-id: " + p.trafficLightId);
+                } else {
+                    const circle = L.circle(coords, {
+                        color: 'blue',
+                        // weight: 1,
+                        fillColor: 'blue',
+                        fillOpacity: 1,
+                        radius: 1
+                    }).addTo(map).bindPopup(`lat="${p.lat}" lon="${p.lon}"`);
+                }
+            });
+            map.fitBounds(latlngs);
+            calcLength(latlngs);
+        };
+
+        const calcLength = (latlngs) => {
+            let length = 0;
+            for (let i = 0; i < latlngs.length - 1; i++) {
+                let ll0 = latlngs[i];
+                let ll1 = latlngs[i + 1];
+                length += calcCrow(ll0.lat, ll0.lng, ll1.lat, ll1.lng);
+            }
+            console.log("overall length: " + length);
+        }
+
+        function calcCrow(lat1, lon1, lat2, lon2) {
+            // https://stackoverflow.com/a/18883819 
+            var R = 6371; // km
+            var dLat = toRad(lat2 - lat1);
+            var dLon = toRad(lon2 - lon1);
+            var lat1 = toRad(lat1);
+            var lat2 = toRad(lat2);
+            var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            var d = R * c;
+            return d * 1000; // m
+        }
+        function toRad(Value) { // Converts numeric degrees to radians
+            return Value * Math.PI / 180;
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd"
+    creator="osrm" version="1.1">
+    <metadata>
+        <name>Stresemannstraße, Stresemannstraße, Doormannsweg, Schulweg, Gärtnerstraße, Breitenfelder Straße, Breitenfelder Straße, Schottmüllerstraße, Jahnring, Habichtstraße</name>
+        <copyright author="OpenStreetMap contributors">
+            <license>http://www.openstreetmap.org/copyright</license>
+        </copyright>
+        <link
+            href="https://map.project-osrm.org/?z=15&amp;center=53.599789%2C9.990392&amp;loc=53.563435%2C9.931523&amp;loc=53.563560%2C9.949837&amp;loc=53.578926%2C9.962840&amp;loc=53.586952%2C9.975543&amp;loc=53.593065%2C9.990993&amp;loc=53.591785%2C10.054851&amp;hl=en&amp;alt=0&amp;srv=1">
+            <text>OpenStreetMap Routing with Open Source Routing Machine</text>
+        </link>
+        <time>2023-05-14T22:26:06.944Z</time>
+    </metadata>
+    <trk>
+        <trkseg>
+            <trkpt lat="50" lon="9.0" />
+            <trkpt lat="51" lon="9.1" />
+
+            <!-- 813_19 -->
+            <!-- <trkpt lat="51.3" lon="9.15" /> -->
+            <!-- 813_20 -->
+            <!-- <trkpt lat="51.7" lon="9.16" /> -->
+
+            <trkpt lat="52" lon="9.2" />
+
+            <!-- 813_21 -->
+            <!-- <trkpt lat="52.5" lon="9.21" /> -->
+
+            <trkpt lat="53" lon="9.3" />
+            <trkpt lat="54" lon="9.4" />
+        </trkseg>
+    </trk>
+</gpx>

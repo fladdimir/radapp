@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <link rel="stylesheet" href="leaflet.css" />
+    <script src="leaflet.js"></script>
+</head>
+
+<body>
+    <br>
+    <button id="wakelock" style="width: 200px; height: 100px;">request wakelock</button>
+    <br>
+    <br>
+    <button id="endtrip" style="width: 200px; height: 100px;">end trip</button>
+    <br>
+    <br>
+    number of measurements:
+    <div id="numMeasurementsParent"></div>
+    <br>
+    current position:
+    <div id="positionParent">
+    </div>
+    <div id='map' style='width: 100%; height: 700px;'></div>
+    <script>
+        let lastPosition;
+        const SEND_BUFFER = [];
+        let tripId;
+
+        let lastPositionText = "";
+        let numMeasurements = 0;
+
+        const getOffsetDateTime = () => new Date().toISOString();
+
+        const map = L.map('map', { attributionControl: false }).setView([53.554043, 9.928579], 10);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+        }).addTo(map);
+
+        const positionParent = document.getElementById("positionParent");
+        const numMeasurementsParent = document.getElementById("numMeasurementsParent");
+        let positionMarker;
+        const render = () => {
+            if (lastPosition) {
+                lastPositionText = `lat: ${lastPosition.coords.latitude}\n\
+                lon: ${lastPosition.coords.longitude} \n\
+                accuracy: ${lastPosition.coords.accuracy}\n\
+                altitude: ${lastPosition.coords.altitude}\n\
+                altitude-accuracy: ${lastPosition.coords.altitudeAccuracy}\n\
+                heading: ${lastPosition.coords.heading}\n\
+                speed: ${lastPosition.coords.speed}\n\
+                `;
+            }
+            positionParent.innerText = lastPositionText;
+            numMeasurementsParent.innerText = numMeasurements;
+
+            if (!lastPosition) return;
+            const coords = [lastPosition.coords.latitude, lastPosition.coords.longitude];
+            if (!positionMarker) {
+                positionMarker = L.circle(coords, {
+                    color: 'blue',
+                    weight: 1,
+                    fillColor: '#f03',
+                    fillOpacity: 0.1,
+                    radius: lastPosition.coords.accuracy
+                }).addTo(map)
+            }
+            positionMarker.setLatLng(coords);
+            positionMarker.setStyle({ radius: lastPosition.coords.accuracy });
+            map.flyToBounds([coords]);
+        };
+
+        const doPost = async (url = "", data = {}) => {
+            const response = await fetch(url, {
+                method: "POST",
+                url,
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(data)
+            });
+            return response;
+        };
+
+        const BASE_URL = "https://" + window.location.hostname + ":" + window.location.port + "/api/location-tracking/trip";
+        let tripStartTime;
+        let executingStartTrip = false;
+        const startTrip = async () => {
+            if (executingStartTrip) return;
+            executingStartTrip = true;
+            if (!tripStartTime) tripStartTime = getOffsetDateTime();
+            const response = await doPost(BASE_URL, { time: tripStartTime });
+            if (!response.ok) alert("request failed: " + JSON.stringify(response));
+            const result = await response.json();
+            tripId = result.id;
+            if (!tripId) alert("could not acquire trip-id");
+            sendPositions();
+            executingStartTrip = false;
+        };
+
+        const mapPositionData = position => {
+            return {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                alt: position.coords.altitude,
+                altAccuracy: position.coords.altitudeAccuracy,
+                heading: position.coords.heading,
+                speed: position.coords.speed,
+                measurementTime: position.measurementTime
+            };
+        }
+
+        let executingSendPositions = false;
+        const sendPositions = async () => {
+            if (!executingSendPositions && tripId && SEND_BUFFER.length) {
+                executingSendPositions = true;
+                const data = [...SEND_BUFFER];
+                SEND_BUFFER.splice(0);
+                const url = BASE_URL + "/" + tripId + "/track";
+                await doPost(url, data.map(mapPositionData));
+                console.log("number of submitted positions: " + data.length);
+                sendPositions();
+                executingSendPositions = false;
+            }
+        };
+
+        const onUpdate = position => {
+            if (!tripId) startTrip();
+            if (position.coords.latitude) numMeasurements++;
+            lastPosition = position;
+            position.measurementTime = getOffsetDateTime();
+            render();
+            SEND_BUFFER.push(position);
+            sendPositions();
+        };
+
+        const watchPosition = navigator.geolocation.watchPosition(
+            onUpdate,
+            error => alert("geolocation error: " + error.message),
+            { enableHighAccuracy: true, }
+        );
+
+        let wakeLock = null;
+        const requestWakeLock = async () => {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                alert("wakelock acquired");
+                wakeLock.onrelease = function (ev) {
+                    alert("onrelease");
+                }
+                wakeLock.addEventListener('release', () => {
+                    alert("release");
+                });
+            } catch (err) {
+                alert(`wakelock failure: ${err.name}, ${err.message}`);
+            }
+        }
+        const wakelockButton = document.getElementById("wakelock");
+        wakelockButton.addEventListener('click', (ev) => requestWakeLock());
+
+        let tripEnded = false;
+        const endTrip = async () => {
+            if (!tripId) return; // not yet started
+            if (tripEnded) return; // already done
+            const response = await doPost(BASE_URL + "/" + tripId + "/end", { time: getOffsetDateTime() });
+            if (response.ok) {
+                tripEnded = true;
+                if (watchPosition) navigator.geolocation.clearWatch(watchPosition);
+            }
+            setTimeout(endTrip, 2000);
+        }
+        const endTripButton = document.getElementById("endtrip");
+        endTripButton.addEventListener('click', endTrip);
+
+    </script>
+</body>
+
+</html>
